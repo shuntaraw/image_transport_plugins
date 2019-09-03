@@ -8,6 +8,16 @@ endif()
 find_package(OpenCV REQUIRED)
 find_package(catkin REQUIRED cv_bridge dynamic_reconfigure image_transport)
 
+# find Zstandard development library
+find_path(Zstandard_INCLUDE_DIR zstd.h)
+find_library(Zstandard_LIBRARY zstd)
+if(Zstandard_INCLUDE_DIR STREQUAL "Zstandard_INCLUDE_DIR-NOTFOUND")
+  message(FATAL_ERROR "Zstandard header file not found")
+endif()
+if(Zstandard_LIBRARY STREQUAL "Zstandard_LIBRARY-NOTFOUND")
+  message(FATAL_ERROR "Zstandard library not found")
+endif()
+
 # generate the dynamic_reconfigure config file
 generate_dynamic_reconfigure_options(cfg/CompressedDepthPublisher.cfg)
 
@@ -18,12 +28,12 @@ catkin_package(
   DEPENDS OpenCV
 )
 
-include_directories(include ${catkin_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+include_directories(include ${catkin_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${Zstandard_INCLUDE_DIR})
 
 set(SOURCE_FILES src/compressed_depth_publisher.cpp src/compressed_depth_subscriber.cpp src/manifest.cpp src/codec.cpp src/rvl_codec.cpp)
 add_library(${PROJECT_NAME} ${SOURCE_FILES})
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${Zstandard_LIBRARY})
 
 class_loader_hide_library_symbols(${PROJECT_NAME})
 
