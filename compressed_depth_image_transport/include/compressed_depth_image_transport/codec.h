@@ -52,6 +52,6 @@ sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
     const std::string& compression_format,
     double depth_max,
     double depth_quantization,
-    int png_level);
+    int compression_level);
 
 }  // namespace compressed_depth_image_transport

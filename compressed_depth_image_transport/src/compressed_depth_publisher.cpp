@@ -73,8 +73,16 @@ void CompressedDepthPublisher::configCb(Config& config, uint32_t level)
 
 void CompressedDepthPublisher::publish(const sensor_msgs::Image& message, const PublishFn& publish_fn) const
 {
+  int compression_level = 0;
+  if (config_.format == "png") {
+    compression_level = config_.png_level;
+  } else if (config_.format == "rvl") {
+    // RVL does not have any compression parameters.
+  } else if (config_.format == "zstd") {
+    compression_level = config_.zstd_level;
+  }
   sensor_msgs::CompressedImage::Ptr compressed_image =
-      encodeCompressedDepthImage(message, config_.format, config_.depth_max, config_.depth_quantization, config_.png_level);
+      encodeCompressedDepthImage(message, config_.format, config_.depth_max, config_.depth_quantization, compression_level);
 
   if (compressed_image)
   {

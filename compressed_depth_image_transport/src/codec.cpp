@@ -38,6 +38,7 @@
 #include <vector>
 
 #include <opencv2/highgui/highgui.hpp>
+#include <zstd.h>
 
 #include "cv_bridge/cv_bridge.h"
 #include "compressed_depth_image_transport/codec.h"
@@ -82,6 +83,8 @@ sensor_msgs::Image::Ptr decodeCompressedDepthImage(const sensor_msgs::Compressed
       compression_format = "png";
     } else if (format.find("compressedDepth rvl") != std::string::npos) {
       compression_format = "rvl";
+    } else if (format.find("compressedDepth zstd") != std::string::npos) {
+      compression_format = "zstd";
     } else {
       ROS_ERROR("Unsupported image format: %s", message.format.c_str());
       return sensor_msgs::Image::Ptr();
@@ -130,6 +133,13 @@ sensor_msgs::Image::Ptr decodeCompressedDepthImage(const sensor_msgs::Compressed
         decompressed = Mat(rows, cols, CV_16UC1);
         RvlCodec rvl;
         rvl.DecompressRVL(&buffer[8], decompressed.ptr<unsigned short>(), cols * rows);
+      } else if (compression_format == "zstd") {
+        const unsigned char *buffer = imageData.data();
+        uint32_t cols, rows;
+        memcpy(&cols, &buffer[0], 4);
+        memcpy(&rows, &buffer[4], 4);
+        decompressed = Mat(rows, cols, CV_16UC1);
+        ZSTD_decompress(decompressed.ptr(), cols * rows * 2, &buffer[8], imageData.size() - 8);
       } else {
         return sensor_msgs::Image::Ptr();
       }
@@ -185,6 +195,13 @@ sensor_msgs::Image::Ptr decodeCompressedDepthImage(const sensor_msgs::Compressed
         cv_ptr->image = Mat(rows, cols, CV_16UC1);
         RvlCodec rvl;
         rvl.DecompressRVL(&buffer[8], cv_ptr->image.ptr<unsigned short>(), cols * rows);
+      } else if (compression_format == "zstd") {
+        const unsigned char *buffer = imageData.data();
+        uint32_t cols, rows;
+        memcpy(&cols, &buffer[0], 4);
+        memcpy(&rows, &buffer[4], 4);
+        cv_ptr->image = Mat(rows, cols, CV_16UC1);
+        ZSTD_decompress(cv_ptr->image.ptr(), cols * rows * 2, &buffer[8], imageData.size() - 8);
       } else {
         return sensor_msgs::Image::Ptr();
       }
@@ -205,17 +222,13 @@ sensor_msgs::Image::Ptr decodeCompressedDepthImage(const sensor_msgs::Compressed
 sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
     const sensor_msgs::Image& message,
     const std::string& compression_format,
-    double depth_max, double depth_quantization, int png_level)
+    double depth_max, double depth_quantization, int compression_level)
 {
 
   // Compressed image message
   sensor_msgs::CompressedImage::Ptr compressed(new sensor_msgs::CompressedImage());
   compressed->header = message.header;
   compressed->format = message.encoding;
-
-  // Compression settings
-  std::vector<int> params;
-  params.resize(3, 0);
 
   // Bit depth of image encoding
   int bitDepth = enc::bitDepth(message.encoding);
@@ -230,10 +243,6 @@ sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
 
   // Update ros message format header
   compressed->format += "; compressedDepth " + compression_format;
-
-  // Check input format
-  params[0] = cv::IMWRITE_PNG_COMPRESSION;
-  params[1] = png_level;
 
   if ((bitDepth == 32) && (numChannels == 1))
   {
@@ -293,6 +302,12 @@ sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
       if (compression_format == "png") {
         try
         {
+          // Compression settings
+          std::vector<int> params = {
+            cv::IMWRITE_PNG_COMPRESSION,
+            compression_level,
+            0,
+          };
           if (cv::imencode(".png", invDepthImg, compressedImage, params))
           {
             float cRatio = (float)(cv_ptr->image.rows * cv_ptr->image.cols * cv_ptr->image.elemSize())
@@ -321,6 +336,15 @@ sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
         RvlCodec rvl;
         int compressedSize = rvl.CompressRVL(invDepthImg.ptr<unsigned short>(), &compressedImage[8], numPixels);
         compressedImage.resize(8 + compressedSize);
+      } else if (compression_format == "zstd") {
+        int numPixels = invDepthImg.rows * invDepthImg.cols;
+        size_t capacity = ZSTD_compressBound(numPixels * 2);
+        compressedImage.resize(capacity + 8);
+        uint32_t cols = invDepthImg.cols;
+        uint32_t rows = invDepthImg.rows;
+        memcpy(&compressedImage[0], &cols, 4);
+        memcpy(&compressedImage[4], &rows, 4);
+        ZSTD_compress(&compressedImage[8], capacity, invDepthImg.ptr(), numPixels * 2, compression_level);
       }
     }
   }
@@ -360,6 +384,12 @@ sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
 
       // Compress raw depth image
       if (compression_format == "png") {
+        // Compression settings
+        std::vector<int> params = {
+          cv::IMWRITE_PNG_COMPRESSION,
+          compression_level,
+          0,
+        };
         if (cv::imencode(".png", cv_ptr->image, compressedImage, params))
         {
           float cRatio = (float)(cv_ptr->image.rows * cv_ptr->image.cols * cv_ptr->image.elemSize())
@@ -382,6 +412,15 @@ sensor_msgs::CompressedImage::Ptr encodeCompressedDepthImage(
         RvlCodec rvl;
         int compressedSize = rvl.CompressRVL(cv_ptr->image.ptr<unsigned short>(), &compressedImage[8], numPixels);
         compressedImage.resize(8 + compressedSize);
+      } else if (compression_format == "zstd") {
+        int numPixels = cv_ptr->image.rows * cv_ptr->image.cols;
+        size_t capacity = ZSTD_compressBound(numPixels * 2);
+        compressedImage.resize(capacity + 8);
+        uint32_t cols = cv_ptr->image.cols;
+        uint32_t rows = cv_ptr->image.rows;
+        memcpy(&compressedImage[0], &cols, 4);
+        memcpy(&compressedImage[4], &rows, 4);
+        ZSTD_compress(&compressedImage[8], capacity, cv_ptr->image.ptr(), numPixels * 2, compression_level);
       }
     }
   }
