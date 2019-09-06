@@ -36,6 +36,7 @@
 #include <sensor_msgs/CompressedImage.h>
 #include <dynamic_reconfigure/server.h>
 #include <compressed_image_transport/CompressedSubscriberConfig.h>
+#include <compressed_image_transport/NvJpegCodec.h>
 
 namespace compressed_image_transport {
 
@@ -68,6 +69,8 @@ protected:
   int imdecode_flag_;
 
   void configCb(Config& config, uint32_t level);
+  NvJpegCodec nv_jpeg_codec_;
+  std::vector<unsigned char> image_buffer_;
 };
 
 } //namespace image_transport

@@ -95,7 +95,19 @@ void CompressedSubscriber::internalCallback(const sensor_msgs::CompressedImageCo
   // Decode color/mono image
   try
   {
-    cv_ptr->image = cv::imdecode(cv::Mat(message->data), imdecode_flag_);
+    if (message->format.find("jpeg") != std::string::npos) {
+      nvjpegOutputFormat_t format;
+      if (imdecode_flag_ == cv::IMREAD_GRAYSCALE) {
+        format=NVJPEG_OUTPUT_Y;
+      }else{
+        format=NVJPEG_OUTPUT_BGR;
+      }
+      int width, height;
+      nv_jpeg_codec_.Decode(message->data, format, &width, &height, &image_buffer_);
+      cv_ptr->image = cv::Mat(height, width, CV_8UC3, image_buffer_.data());
+    } else {
+      cv_ptr->image = cv::imdecode(cv::Mat(message->data), imdecode_flag_);
+    }
 
     // Assign image encoding string
     const size_t split_pos = message->format.find(';');
